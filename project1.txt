@@ -1,0 +1,186 @@
+import base64
+import io
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from dash import Dash, dcc, html, Input, Output, State
+
+# Initialize Dash App
+app = Dash(__name__)
+app.title = "Sales & Revenue Analysis Dashboard"
+
+# Default Sample Dataset (Used if no file is uploaded)
+sample_data = pd.DataFrame({
+    'Date': pd.date_range(start='2026-01-01', periods=30, freq='D'),
+    'Product': ['Widget A', 'Widget B', 'Widget C', 'Widget A', 'Widget B'] * 6,
+    'Region': ['North', 'South', 'East', 'West', 'North'] * 6,
+    'Sales_Quantity': [10, 15, 8, 20, 12, 5, 22, 18, 9, 14, 11, 16, 7, 25, 13, 6, 19, 17, 10, 15, 12, 18, 8, 21, 14, 9, 16, 20, 11, 13],
+    'Revenue': [100, 225, 160, 200, 180, 50, 330, 360, 180, 140, 110, 240, 140, 250, 195, 60, 285, 340, 200, 225, 120, 270, 160, 210, 210, 90, 240, 300, 165, 195]
+})
+
+# Layout Definition
+app.layout = html.Div(style={'fontFamily': 'Arial, sans-serif', 'margin': '20px', 'backgroundColor': '#f8f9fa'}, children=[
+    
+    # Header
+    html.Div([
+        html.H1("Sales & Revenue Analysis Dashboard", style={'textAlign': 'center', 'color': '#1f77b4', 'marginBottom': '5px'}),
+        html.P("Interactive KPI tracking and revenue visualization", style={'textAlign': 'center', 'color': '#666'})
+    ]),
+
+    # File Upload Section
+    html.Div([
+        dcc.Upload(
+            id='upload-data',
+            children=html.Div(['Drag and Drop or ', html.A('Select CSV/Excel File')]),
+            style={
+                'width': '98%', 'height': '60px', 'lineHeight': '60px',
+                'borderWidth': '1px', 'borderStyle': 'dashed', 'borderRadius': '5px',
+                'textAlign': 'center', 'margin': '10px auto', 'backgroundColor': '#fff'
+            },
+            multiple=False
+        ),
+        html.Div(id='upload-status', style={'textAlign': 'center', 'color': 'green', 'fontWeight': 'bold'})
+    ]),
+
+    # Filter Controls
+    html.Div(style={'display': 'flex', 'gap': '20px', 'margin': '20px 0', 'padding': '15px', 'backgroundColor': '#fff', 'borderRadius': '8px'}, children=[
+        html.Div(style={'flex': '1'}, children=[
+            html.Label("Select Product:", style={'fontWeight': 'bold'}),
+            dcc.Dropdown(id='product-filter', multi=True, placeholder="All Products")
+        ]),
+        html.Div(style={'flex': '1'}, children=[
+            html.Label("Select Region:", style={'fontWeight': 'bold'}),
+            dcc.Dropdown(id='region-filter', multi=True, placeholder="All Regions")
+        ])
+    ]),
+
+    # KPI Summary Cards
+    html.Div(style={'display': 'flex', 'justifyContent': 'space-around', 'marginBottom': '20px'}, children=[
+        html.Div(id='kpi-total-revenue', style={'backgroundColor': '#007bff', 'color': '#fff', 'padding': '20px', 'borderRadius': '8px', 'width': '28%', 'textAlign': 'center'}),
+        html.Div(id='kpi-total-sales', style={'backgroundColor': '#28a745', 'color': '#fff', 'padding': '20px', 'borderRadius': '8px', 'width': '28%', 'textAlign': 'center'}),
+        html.Div(id='kpi-avg-order', style={'backgroundColor': '#ffc107', 'color': '#333', 'padding': '20px', 'borderRadius': '8px', 'width': '28%', 'textAlign': 'center'})
+    ]),
+
+    # Visualization Charts
+    html.Div(style={'display': 'flex', 'gap': '20px', 'marginBottom': '20px'}, children=[
+        html.Div(style={'flex': '1', 'backgroundColor': '#fff', 'borderRadius': '8px', 'padding': '10px'}, children=[
+            dcc.Graph(id='revenue-trend-chart')
+        ]),
+        html.Div(style={'flex': '1', 'backgroundColor': '#fff', 'borderRadius': '8px', 'padding': '10px'}, children=[
+            dcc.Graph(id='top-products-chart')
+        ])
+    ]),
+
+    html.Div(style={'display': 'flex', 'gap': '20px'}, children=[
+        html.Div(style={'flex': '1', 'backgroundColor': '#fff', 'borderRadius': '8px', 'padding': '10px'}, children=[
+            dcc.Graph(id='regional-revenue-chart')
+        ])
+    ]),
+
+    # Hidden Store to retain active DataFrame state
+    dcc.Store(id='stored-data')
+])
+
+# Helper function to parse uploaded files
+def parse_contents(contents, filename):
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    try:
+        if 'csv' in filename:
+            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+        elif 'xls' in filename:
+            df = pd.read_excel(io.BytesIO(decoded))
+        else:
+            return None
+        
+        # Format columns if they exist
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+        return df
+    except Exception as e:
+        print(e)
+        return None
+
+# Callback to process data upload and set options
+@app.callback(
+    [Output('stored-data', 'data'),
+     Output('upload-status', 'children'),
+     Output('product-filter', 'options'),
+     Output('region-filter', 'options')],
+    [Input('upload-data', 'contents')],
+    [State('upload-data', 'filename')]
+)
+def update_dataset(contents, filename):
+    if contents is not None:
+        df = parse_contents(contents, filename)
+        if df is not None:
+            status = f"Successfully loaded: {filename}"
+        else:
+            df = sample_data
+            status = "Failed to process file. Showing default sample data."
+    else:
+        df = sample_data
+        status = "Using default sample dataset. Upload your own CSV/Excel to analyze custom data."
+
+    product_opts = [{'label': i, 'value': i} for i in df['Product'].unique()] if 'Product' in df.columns else []
+    region_opts = [{'label': i, 'value': i} for i in df['Region'].unique()] if 'Region' in df.columns else []
+
+    return df.to_dict('records'), status, product_opts, region_opts
+
+# Callback to update Dashboard KPIs and Visualizations
+@app.callback(
+    [Output('kpi-total-revenue', 'children'),
+     Output('kpi-total-sales', 'children'),
+     Output('kpi-avg-order', 'children'),
+     Output('revenue-trend-chart', 'figure'),
+     Output('top-products-chart', 'figure'),
+     Output('regional-revenue-chart', 'figure')],
+    [Input('stored-data', 'data'),
+     Input('product-filter', 'value'),
+     Input('region-filter', 'value')]
+)
+def update_dashboard(data, selected_products, selected_regions):
+    df = pd.DataFrame(data)
+
+    # Filter by selected dropdown values
+    if selected_products:
+        df = df[df['Product'].isin(selected_products)]
+    if selected_regions:
+        df = df[df['Region'].isin(selected_regions)]
+
+    # Compute KPIs
+    total_rev = df['Revenue'].sum() if 'Revenue' in df.columns else 0
+    total_sales = df['Sales_Quantity'].sum() if 'Sales_Quantity' in df.columns else 0
+    avg_order = df['Revenue'].mean() if 'Revenue' in df.columns else 0
+
+    kpi_rev = [html.H3("Total Revenue"), html.H2(f"${total_rev:,.2f}")]
+    kpi_sales = [html.H3("Units Sold"), html.H2(f"{total_sales:,}")]
+    kpi_avg = [html.H3("Avg Order Value"), html.H2(f"${avg_order:,.2f}")]
+
+    # 1. Revenue Trend Line Chart
+    if 'Date' in df.columns and 'Revenue' in df.columns:
+        df_trend = df.groupby('Date')['Revenue'].sum().reset_index()
+        fig_trend = px.line(df_trend, x='Date', y='Revenue', title="Revenue Trend Over Time", markers=True)
+        fig_trend.update_traces(line_color='#1f77b4')
+    else:
+        fig_trend = px.line(title="Date/Revenue columns missing")
+
+    # 2. Top Performing Products Bar Chart
+    if 'Product' in df.columns and 'Revenue' in df.columns:
+        df_prod = df.groupby('Product')['Revenue'].sum().reset_index().sort_values(by='Revenue', ascending=True)
+        fig_prod = px.bar(df_prod, x='Revenue', y='Product', orientation='h', title="Revenue by Product", text_auto='.2s')
+        fig_prod.update_traces(marker_color='#2ca02c')
+    else:
+        fig_prod = px.bar(title="Product/Revenue columns missing")
+
+    # 3. Regional Distribution Donut Chart
+    if 'Region' in df.columns and 'Revenue' in df.columns:
+        df_region = df.groupby('Region')['Revenue'].sum().reset_index()
+        fig_region = px.pie(df_region, values='Revenue', names='Region', title="Regional Revenue Breakdown", hole=0.4)
+    else:
+        fig_region = px.pie(title="Region/Revenue columns missing")
+
+    return kpi_rev, kpi_sales, kpi_avg, fig_trend, fig_prod, fig_region
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
